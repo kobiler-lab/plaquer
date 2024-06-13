@@ -33,7 +33,7 @@ warnings.filterwarnings("ignore", category=np.VisibleDeprecationWarning)
 # ==============================================================================
 #                                 CODE VERSION
 # ==============================================================================
-plaquer_version = "v1.4.0"
+plaquer_version = "v1.5.0"
 
 # ==============================================================================
 #                            PARSING INPUT ARGUMENTS
@@ -208,10 +208,10 @@ def add_ext(fname, ext=".png"):
 #                                 CONSTANTS
 # ==============================================================================
 
-MODELS = ["synth_14a", "synth_15a"]
+MODELS = ["synth_16a", "synth_18a"]
 
 n_models = len(MODELS)
-weights = [2, 1]
+weights = [1, 1]
 
 DATA_PATH_SAVE = "inference"
 
@@ -242,13 +242,16 @@ majority_classes = ["R", "C+Y"]
 mid_classes = ["R+Y", "C"]
 minority_classes = ["C+R", "Y", "ALL 3"]
 
-classes_model = {"synth_14a": classes, "synth_15a": majority_classes}
+classes_model = {"synth_16a": classes, "synth_18a": classes}
 classes_model = process_classes_model(classes_model, MODELS)
+
+ratio_patches = {mdl: 0.25 if mdl.startswith("synth_18") else 0.125
+                 for mdl in MODELS}
 
 yolo_stride = 32
 stride_factor = 12
 IMG_SIZE = int(yolo_stride*stride_factor)
-RATIO_PATCHES_L = 0.125
+# RATIO_PATCHES_L = 0.125
 OVERLAP = 0.5
 FREQ_MAJ_CLASS = 0.9
 MIN_AREA = 16**2 # in pixels², in normalized units relative to IMG_SIZE=384 equals to MIN_AREA=(1/24)²=0.00174
@@ -260,7 +263,7 @@ RESCALE = True
 UBYTE = True
 PREPROCESS_SUB_IMG = False if (RESCALE and UBYTE) else True
 
-WEIGHTED_IMG = {"synth_14a": False, "synth_15a": True}
+WEIGHTED_IMG = {"synth_16a": False, "synth_18a": False}
 
 augs = ["hflip", "vflip", "rot90"]
 TTA = args["TTA"] # test time augmentations, float in [0-1], for the probability of performing augmentations
@@ -546,10 +549,11 @@ def patching_inner(img,
     
     # calculate the inputs for the patching process
     IMG_W, IMG_H, _ = img_processed.shape
-    PATCH_SIZE_L = int(np.round(RATIO_PATCHES_L*IMG_W))
+    # PATCH_SIZE_L = int(np.round(RATIO_PATCHES_L*IMG_W))
     for mdl in MODELS:
+        patch_size = int(np.round(ratio_patches[mdl]*IMG_W))
         generate_samples_from_img_inference(img_processed,
-                                            PATCH_SIZE_L,
+                                            patch_size,
                                             img_size,
                                             OVERLAP,
                                             WEIGHTED_IMG[mdl],
@@ -756,8 +760,8 @@ def df_inv_augment_labels(df_boxes_patch, s=1):
 
 # ------------------------------------------------------------------------------
 
-def convert_bbox_to_img_coords(box):
-    img_d = box["d"]/RATIO_PATCHES_L
+def convert_bbox_to_img_coords(box, ratio_patch):
+    img_d = box["d"]/ratio_patch
     x_new = (box["x"]*box["d"] + box["tl"][0]) / img_d
     y_new = (box["y"]*box["d"] + box["tl"][1]) / img_d
     w_new = box["w"]*box["d"]/img_d
@@ -766,16 +770,19 @@ def convert_bbox_to_img_coords(box):
 
 # ------------------------------------------------------------------------------
 
-def convert_preds_to_img_coords(df):
-    bboxes = df.apply(convert_bbox_to_img_coords, axis=1, result_type="expand")
+def convert_preds_to_img_coords(df, ratio_patch):
+    bboxes = df.apply(convert_bbox_to_img_coords,
+                      args=[ratio_patch],
+                      axis=1,
+                      result_type="expand")
     bboxes.columns = BOX_COLUMNS
     df[BOX_COLUMNS] = bboxes
     return df
 
 # ------------------------------------------------------------------------------
 
-def is_small_box(box):
-    img_d = box["d"]/RATIO_PATCHES_L
+def is_small_box(box, ratio_patch):
+    img_d = box["d"]/ratio_patch
     w = box["w"]*img_d
     h = box["h"]*img_d
     area = w*h
@@ -783,13 +790,13 @@ def is_small_box(box):
 
 # ------------------------------------------------------------------------------
 
-def process_annotation_df(df, remove_small=False):
+def process_annotation_df(df, ratio_patch, remove_small=False):
     # inverse augmentations for bbox dimensions
     df = df_inv_augment_labels(df)
     # convert bbox dimensions relative to image dimensions
-    df = convert_preds_to_img_coords(df)
+    df = convert_preds_to_img_coords(df, ratio_patch)
     if remove_small:
-        df = df[~df.apply(is_small_box, axis=1)]
+        df = df[~df.apply(is_small_box, axis=1, args=[ratio_patch])]
     return df
 
 # ------------------------------------------------------------------------------
@@ -797,7 +804,9 @@ def process_annotation_df(df, remove_small=False):
 def get_model_preds(mdl):
     pred_path = PREDICTIONS_PATH_LOCAL[mdl]
     preds_df = get_annotation_df(pred_path, is_conf=True)
-    preds_df_processed = process_annotation_df(preds_df, remove_small=True)
+    preds_df_processed = process_annotation_df(preds_df,
+                                               ratio_patches[mdl],
+                                               remove_small=True)
     return preds_df_processed
 
 # ------------------------------------------------------------------------------
