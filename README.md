@@ -1,5 +1,7 @@
 ## Model Weights
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17018668.svg)](https://doi.org/10.5281/zenodo.17018668)
+
 The trained model weights are available on Zenodo:
 
 - DOI: [10.5281/zenodo.17018668](https://doi.org/10.5281/zenodo.17018668)
